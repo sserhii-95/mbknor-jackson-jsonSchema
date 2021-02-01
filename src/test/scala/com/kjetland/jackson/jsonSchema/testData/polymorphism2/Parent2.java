@@ -1,6 +1,5 @@
-package com.kjetland.jackson.jsonSchema.testData.polymorphism2.polymorphism1;
+package com.kjetland.jackson.jsonSchema.testData.polymorphism2;
 
-import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
 @JsonTypeInfo(

@@ -18,6 +18,9 @@ import scala.annotation.meta.field
             "^s[a-zA-Z0-9]+": {
               "type": "string"
             }
+          },
+          "properties": {
+            "injectedInProperties": "true"
           }
         }
       """,
@@ -88,14 +91,15 @@ class CustomUserNamesLoader(custom:String) extends Supplier[JsonNode] {
     schema
   }
 }
-  
 
-
-
-
-
-
-
-
-
-
+@JsonSchemaInject(
+  json =
+    """{
+      "everything": "should be replaced"
+      }""",
+  merge = false
+)
+case class UsingJsonSchemaInjectWithTopLevelMergeFalse
+(
+  shouldBeIgnored:String
+)

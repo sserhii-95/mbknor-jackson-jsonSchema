@@ -5,17 +5,10 @@ lazy val commonSettings = Seq(
   organization := "com.kjetland",
   organizationName := "mbknor",
   scalaVersion := "2.12.4",
-  crossScalaVersions := Seq("2.10.5", "2.11.11", "2.12.6", "2.13.0-M4"),
+  crossScalaVersions := Seq("2.10.7", "2.11.12", "2.12.10", "2.13.1"),
   publishMavenStyle := true,
   publishArtifact in Test := false,
   pomIncludeRepository := { _ => false },
-//  publishTo := {
-//    val nexus = "http://nexus.nextgentel.net/content/repositories/"
-//    if (isSnapshot.value)
-//      Some("snapshots" at nexus + "snapshots/")
-//    else
-//      Some("releases"  at nexus + "thirdparty/")
-//  },
   publishTo := {
     val nexus = "https://oss.sonatype.org/"
     if (isSnapshot.value)
@@ -49,27 +42,30 @@ lazy val commonSettings = Seq(
       Seq("-no-java-comments") //workaround for scala/scala-dev#249
     case _ =>
       Seq()
-  }
+  },
+  packageOptions in (Compile, packageBin) +=
+    Package.ManifestAttributes( "Automatic-Module-Name" -> "mbknor.jackson.jsonschema" )
 )
 
 
-val jacksonVersion = "2.9.7"
-val jacksonModuleScalaVersion = "2.9.7"
-val slf4jVersion = "1.7.7"
+val jacksonVersion = "2.10.1"
+val jacksonModuleScalaVersion = "2.10.1"
+val slf4jVersion = "1.7.26"
 
 
 lazy val deps  = Seq(
   "com.fasterxml.jackson.core" % "jackson-databind" % jacksonVersion,
   "javax.validation" % "validation-api" % "2.0.1.Final",
   "org.slf4j" % "slf4j-api" % slf4jVersion,
-  "io.github.classgraph" % "classgraph" % "4.1.5",
-  "org.scalatest" %% "scalatest" % "3.0.6-SNAP2" % "test",
-  "ch.qos.logback" % "logback-classic" % "1.1.3" % "test",
-  "com.github.fge" % "json-schema-validator" % "2.2.6" % "test",
+  "io.github.classgraph" % "classgraph" % "4.8.21",
+  "org.scalatest" %% "scalatest" % "3.0.8" % "test",
+  "ch.qos.logback" % "logback-classic" % "1.2.3" % "test",
+  "com.github.java-json-tools" % "json-schema-validator" % "2.2.11" % "test",
   "com.fasterxml.jackson.module" %% "jackson-module-scala" % jacksonModuleScalaVersion % "test",
+  "com.fasterxml.jackson.module" % "jackson-module-kotlin" % jacksonVersion % "test",
   "com.fasterxml.jackson.datatype" % "jackson-datatype-jdk8" % jacksonVersion % "test",
   "com.fasterxml.jackson.datatype" % "jackson-datatype-jsr310" % jacksonVersion % "test",
-  "joda-time" % "joda-time" % "2.9.4" % "test",
+  "joda-time" % "joda-time" % "2.10.1" % "test",
   "com.fasterxml.jackson.datatype" % "jackson-datatype-joda" % jacksonVersion % "test"
 )
 

@@ -10,19 +10,22 @@ import com.fasterxml.jackson.databind.{JavaType, JsonNode, ObjectMapper, Seriali
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module
 import com.fasterxml.jackson.datatype.joda.JodaModule
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
+import com.fasterxml.jackson.module.kotlin.KotlinModule
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import com.github.fge.jsonschema.main.JsonSchemaFactory
 import com.kjetland.jackson.jsonSchema.testData.GenericClass.GenericClassVoid
 import com.kjetland.jackson.jsonSchema.testData.MapLike.GenericMapLike
 import com.kjetland.jackson.jsonSchema.testData._
+import com.kjetland.jackson.jsonSchema.testData.generic.GenericClassContainer
 import com.kjetland.jackson.jsonSchema.testData.mixin.{MixinChild1, MixinModule, MixinParent}
 import com.kjetland.jackson.jsonSchema.testData.polymorphism1.{Child1, Child2, Parent}
-import com.kjetland.jackson.jsonSchema.testData.polymorphism2.polymorphism1.{Child21, Child22, Parent2}
+import com.kjetland.jackson.jsonSchema.testData.polymorphism2.{Child21, Child22, Parent2}
 import com.kjetland.jackson.jsonSchema.testData.polymorphism3.{Child31, Child32, Parent3}
-import com.kjetland.jackson.jsonSchema.testData.polymorphism4.{Child41, Child42, Parent4}
+import com.kjetland.jackson.jsonSchema.testData.polymorphism4.{Child41, Child42}
+import com.kjetland.jackson.jsonSchema.testData.polymorphism5.{Child51, Child52, Parent5}
 import com.kjetland.jackson.jsonSchema.testDataScala._
 import com.kjetland.jackson.jsonSchema.testData_issue_24.EntityWrapper
-import io.github.classgraph.ClassGraph
+import javax.validation.groups.Default
 import org.scalatest.{FunSuite, Matchers}
 
 import scala.collection.JavaConverters._
@@ -30,8 +33,9 @@ import scala.collection.JavaConverters._
 class JsonSchemaGeneratorTest extends FunSuite with Matchers {
 
   val _objectMapper = new ObjectMapper()
-  val _objectMapperScala = new ObjectMapper()
-  _objectMapperScala.registerModule(new DefaultScalaModule)
+  val _objectMapperScala = new ObjectMapper().registerModule(new DefaultScalaModule)
+
+  val _objectMapperKotlin = new ObjectMapper().registerModule(new KotlinModule())
 
   val mixinModule = new MixinModule
 
@@ -60,6 +64,8 @@ class JsonSchemaGeneratorTest extends FunSuite with Matchers {
   val jsonSchemaGeneratorScala = new JsonSchemaGenerator(_objectMapperScala, debug = true)
   val jsonSchemaGeneratorScalaHTML5 = new JsonSchemaGenerator(_objectMapperScala, debug = true, config = JsonSchemaConfig.html5EnabledSchema)
 
+  val jsonSchemaGeneratorKotlin = new JsonSchemaGenerator(_objectMapperKotlin, debug = true)
+
   val vanillaJsonSchemaDraft4WithIds = JsonSchemaConfig.vanillaJsonSchemaDraft4.copy(useTypeIdForDefinitionName = true)
   val jsonSchemaGeneratorWithIds = new JsonSchemaGenerator(_objectMapperScala, debug = true, vanillaJsonSchemaDraft4WithIds)
 
@@ -68,6 +74,15 @@ class JsonSchemaGeneratorTest extends FunSuite with Matchers {
                                                                  config = JsonSchemaConfig.html5EnabledSchema.copy(useOneOfForNullables = true))
   val jsonSchemaGeneratorWithIdsNullable = new JsonSchemaGenerator(_objectMapperScala, debug = true,
                                                                    vanillaJsonSchemaDraft4WithIds.copy(useOneOfForNullables = true))
+
+  val jsonSchemaGenerator_draft_06 = new JsonSchemaGenerator(_objectMapper, debug = true,
+    JsonSchemaConfig.vanillaJsonSchemaDraft4.withJsonSchemaDraft(JsonSchemaDraft.DRAFT_06))
+
+  val jsonSchemaGenerator_draft_07 = new JsonSchemaGenerator(_objectMapper, debug = true,
+    JsonSchemaConfig.vanillaJsonSchemaDraft4.withJsonSchemaDraft(JsonSchemaDraft.DRAFT_07))
+
+  val jsonSchemaGenerator_draft_2019_09 = new JsonSchemaGenerator(_objectMapper, debug = true,
+    JsonSchemaConfig.vanillaJsonSchemaDraft4.withJsonSchemaDraft(JsonSchemaDraft.DRAFT_2019_09))
 
   val testData = new TestData{}
 
@@ -106,13 +121,18 @@ class JsonSchemaGeneratorTest extends FunSuite with Matchers {
 
   // Generates schema, validates the schema using external schema validator and
   // Optionally tries to validate json against the schema.
-  def generateAndValidateSchema(g:JsonSchemaGenerator, clazz:Class[_], jsonToTestAgainstSchema:Option[JsonNode] = None):JsonNode = {
+  def generateAndValidateSchema
+  (
+    g:JsonSchemaGenerator,
+    clazz:Class[_], jsonToTestAgainstSchema:Option[JsonNode] = None,
+    jsonSchemaDraft: JsonSchemaDraft = JsonSchemaDraft.DRAFT_04
+  ):JsonNode = {
     val schema = g.generateJsonSchema(clazz)
 
     println("--------------------------------------------")
     println(asPrettyJson(schema, g.rootObjectMapper))
 
-    assert(JsonSchemaGenerator.JSON_SCHEMA_DRAFT_4_URL == schema.at("/$schema").asText())
+    assert(jsonSchemaDraft.url == schema.at("/$schema").asText())
 
     useSchema(schema, jsonToTestAgainstSchema)
 
@@ -121,13 +141,19 @@ class JsonSchemaGeneratorTest extends FunSuite with Matchers {
 
   // Generates schema, validates the schema using external schema validator and
   // Optionally tries to validate json against the schema.
-  def generateAndValidateSchemaUsingJavaType(g:JsonSchemaGenerator, javaType:JavaType, jsonToTestAgainstSchema:Option[JsonNode] = None):JsonNode = {
+  def generateAndValidateSchemaUsingJavaType
+  (
+    g:JsonSchemaGenerator,
+    javaType:JavaType,
+    jsonToTestAgainstSchema:Option[JsonNode] = None,
+    jsonSchemaDraft: JsonSchemaDraft = JsonSchemaDraft.DRAFT_04
+  ):JsonNode = {
     val schema = g.generateJsonSchema(javaType)
 
     println("--------------------------------------------")
     println(asPrettyJson(schema, g.rootObjectMapper))
 
-    assert(JsonSchemaGenerator.JSON_SCHEMA_DRAFT_4_URL == schema.at("/$schema").asText())
+    assert(jsonSchemaDraft.url == schema.at("/$schema").asText())
 
     useSchema(schema, jsonToTestAgainstSchema)
 
@@ -467,10 +493,32 @@ class JsonSchemaGeneratorTest extends FunSuite with Matchers {
 
       val schema = generateAndValidateSchema(g, classOf[Parent2], Some(jsonNode))
 
-      assertChild1(schema, "/oneOf", "Child21", typeParamName = "clazz", typeName = "com.kjetland.jackson.jsonSchema.testData.polymorphism2.polymorphism1.Child21")
-      assertChild2(schema, "/oneOf", "Child22", typeParamName = "clazz", typeName = "com.kjetland.jackson.jsonSchema.testData.polymorphism2.polymorphism1.Child22")
+      assertChild1(schema, "/oneOf", "Child21", typeParamName = "clazz", typeName = "com.kjetland.jackson.jsonSchema.testData.polymorphism2.Child21")
+      assertChild2(schema, "/oneOf", "Child22", typeParamName = "clazz", typeName = "com.kjetland.jackson.jsonSchema.testData.polymorphism2.Child22")
     }
   }
+
+  test("Generate schema for super class annotated with @JsonTypeInfo - use = JsonTypeInfo.Id.MINIMAL_CLASS") {
+
+    // Java
+    {
+
+      val config = JsonSchemaConfig.vanillaJsonSchemaDraft4
+      val g = new JsonSchemaGenerator(_objectMapper, debug = true, config)
+
+      val jsonNode = assertToFromJson(g, testData.child51)
+      assertToFromJson(g, testData.child51, classOf[Parent5])
+
+      val schema = generateAndValidateSchema(g, classOf[Parent5], Some(jsonNode))
+
+      assertChild1(schema, "/oneOf", "Child51", typeParamName = "clazz", typeName = ".Child51")
+      assertChild2(schema, "/oneOf", "Child52", typeParamName = "clazz", typeName = ".Child52")
+
+      val embeddedTypeName = _objectMapper.valueToTree[ObjectNode](new Parent5.Child51InnerClass()).get("clazz").asText()
+      assertChild1(schema, "/oneOf", "Child51InnerClass", typeParamName = "clazz", typeName = embeddedTypeName)
+    }
+  }
+
 
   test("Generate schema for super class annotated with @JsonTypeInfo - include = JsonTypeInfo.As.EXISTING_PROPERTY") {
 
@@ -499,6 +547,48 @@ class JsonSchemaGeneratorTest extends FunSuite with Matchers {
 
       assertJsonSubTypesInfo(schema1, "type", "Child41")
       assertJsonSubTypesInfo(schema2, "type", "Child42")
+    }
+  }
+
+  test("Generate schema for class containing generics with same base type but different type arguments") {
+    {
+      val config = JsonSchemaConfig.vanillaJsonSchemaDraft4
+      val g = new JsonSchemaGenerator(_objectMapper, debug = true, config)
+
+      val instance = new GenericClassContainer()
+      val jsonNode = assertToFromJson(g, instance)
+      assertToFromJson(g, instance, classOf[GenericClassContainer])
+
+      val schema = generateAndValidateSchema(g, classOf[GenericClassContainer], Some(jsonNode))
+
+      assert(schema.at("/definitions/BoringClass/properties/data/type").asText() == "integer")
+      assert(schema.at("/definitions/GenericClass(String)/properties/data/type").asText() == "string")
+      assert(schema.at("/definitions/GenericWithJsonTypeName(String)/properties/data/type").asText() == "string")
+      assert(schema.at("/definitions/GenericClass(BoringClass)/properties/data/$ref").asText() == "#/definitions/BoringClass")
+      assert(schema.at("/definitions/GenericClassTwo(String,GenericClass(BoringClass))/properties/data1/type").asText() == "string")
+      assert(schema.at("/definitions/GenericClassTwo(String,GenericClass(BoringClass))/properties/data2/$ref").asText() == "#/definitions/GenericClass(BoringClass)")
+    }
+  }
+
+  test("additionalProperties / failOnUnknownProperties") {
+
+    // Test default
+    {
+      val jsonNode = assertToFromJson(jsonSchemaGenerator, testData.manyPrimitives)
+      val schema = generateAndValidateSchema(jsonSchemaGenerator, testData.manyPrimitives.getClass, Some(jsonNode))
+
+      assert(schema.at("/additionalProperties").asBoolean() == false)
+    }
+
+    // Test turning failOnUnknownProperties off
+    {
+      val generator = new JsonSchemaGenerator(_objectMapper, debug = false,
+        config = JsonSchemaConfig.vanillaJsonSchemaDraft4.copy(failOnUnknownProperties = false)
+      )
+      val jsonNode = assertToFromJson(generator, testData.manyPrimitives)
+      val schema = generateAndValidateSchema(generator, testData.manyPrimitives.getClass, Some(jsonNode))
+
+      assert(schema.at("/additionalProperties").asBoolean() == true)
     }
   }
 
@@ -866,6 +956,21 @@ class JsonSchemaGeneratorTest extends FunSuite with Matchers {
 
   }
 
+  test("using JavaType with @JsonTypeName") {
+    val config = JsonSchemaConfig.vanillaJsonSchemaDraft4
+    val g = new JsonSchemaGenerator(_objectMapper, debug = true, config)
+
+    val instance = new BoringContainer();
+    instance.child1 = new PojoUsingJsonTypeName();
+    instance.child1.stringWithDefault = "test";
+    val jsonNode = assertToFromJson(g, instance)
+    assertToFromJson(g, instance, classOf[BoringContainer])
+
+    val schema = generateAndValidateSchema(g, classOf[BoringContainer], Some(jsonNode))
+
+    assert(schema.at("/definitions/OtherTypeName/type").asText() == "object");
+  }
+
   test("scala using option with HTML5") {
     val jsonNode = assertToFromJson(jsonSchemaGeneratorScalaHTML5, testData.pojoUsingOptionScala)
     val schema = generateAndValidateSchema(jsonSchemaGeneratorScalaHTML5, testData.pojoUsingOptionScala.getClass, Some(jsonNode))
@@ -996,6 +1101,19 @@ class JsonSchemaGeneratorTest extends FunSuite with Matchers {
 
   }
 
+  test("default and examples") {
+    val jsonNode = assertToFromJson(jsonSchemaGeneratorScalaHTML5, testData.defaultAndExamples)
+    val schema = generateAndValidateSchema(jsonSchemaGeneratorScalaHTML5, testData.defaultAndExamples.getClass, Some(jsonNode))
+
+    assert(getArrayNodeAsListOfStrings(schema.at("/properties/emailValue/examples")) == List("user@example.com"))
+    assert(schema.at("/properties/fontSize/default").asText() == "12")
+    assert(getArrayNodeAsListOfStrings(schema.at("/properties/fontSize/examples")) == List("10", "14", "18"))
+
+    assert(schema.at("/properties/defaultStringViaJsonValue/default").asText() == "ds")
+    assert(schema.at("/properties/defaultIntViaJsonValue/default").asText() == "1")
+    assert(schema.at("/properties/defaultBoolViaJsonValue/default").asText() == "true")
+  }
+
   test("validation") {
     // Scala
     {
@@ -1016,6 +1134,9 @@ class JsonSchemaGeneratorTest extends FunSuite with Matchers {
       verifyNumericProperty(schema, "intMax", None, Some(10), required = true)
       verifyNumericProperty(schema, "doubleMin", Some(1), None, required = true)
       verifyNumericProperty(schema, "doubleMax", None, Some(10), required = true)
+      verifyNumericDoubleProperty(schema, "decimalMin", Some(1.5), None, required = true)
+      verifyNumericDoubleProperty(schema, "decimalMax", None, Some(2.5), required = true)
+      assert(schema.at("/properties/email/format").asText() == "email")
 
       verifyArrayProperty(schema, "notEmptyStringArray", Some(1), None, required = true)
 
@@ -1041,6 +1162,8 @@ class JsonSchemaGeneratorTest extends FunSuite with Matchers {
       verifyNumericProperty(schema, "intMax", None, Some(10), required = true)
       verifyNumericProperty(schema, "doubleMin", Some(1), None, required = true)
       verifyNumericProperty(schema, "doubleMax", None, Some(10), required = true)
+      verifyNumericDoubleProperty(schema, "decimalMin", Some(1.5), None, required = true)
+      verifyNumericDoubleProperty(schema, "decimalMax", None, Some(2.5), required = true)
 
       verifyArrayProperty(schema, "notEmptyStringArray", Some(1), None, required = true)
       verifyArrayProperty(schema, "notEmptyStringList", Some(1), None, required = true)
@@ -1067,6 +1190,13 @@ class JsonSchemaGeneratorTest extends FunSuite with Matchers {
       assertPropertyRequired(schema, propertyName, required)
     }
 
+    def verifyNumericDoubleProperty(schema:JsonNode, propertyName:String, minimum:Option[Double], maximum:Option[Double], required:Boolean): Unit = {
+      assertNumericDoublePropertyValidation(schema, propertyName, "minimum", minimum)
+      assertNumericDoublePropertyValidation(schema, propertyName, "maximum", maximum)
+      assertPropertyRequired(schema, propertyName, required)
+    }
+
+
     def verifyArrayProperty(schema:JsonNode, propertyName:String, minItems:Option[Int], maxItems:Option[Int], required:Boolean): Unit = {
       assertNumericPropertyValidation(schema, propertyName, "minItems", minItems)
       assertNumericPropertyValidation(schema, propertyName, "maxItems", maxItems)
@@ -1087,6 +1217,165 @@ class JsonSchemaGeneratorTest extends FunSuite with Matchers {
         case None => assert(jsonNode.isMissingNode)
       }
     }
+
+    def assertNumericDoublePropertyValidation(schema:JsonNode, propertyName:String, validationName:String, value:Option[Double]): Unit = {
+      val jsonNode = schema.at(s"/properties/$propertyName/$validationName")
+      value match {
+        case Some(_) => assert(jsonNode.asDouble() == value.get)
+        case None => assert(jsonNode.isMissingNode)
+      }
+    }
+  }
+
+  test("validation using groups") {
+
+    def check(schema:JsonNode, propertyName:String, included:Boolean): Unit = {
+      assertPropertyRequired(schema, propertyName, required = included)
+      assert(schema.at(s"/properties/$propertyName/injected").isMissingNode != included)
+    }
+
+    val objectUsingGroups = testData.classUsingValidationWithGroups
+
+    // no Group at all
+    {
+      val jsonSchemaGenerator_Group = new JsonSchemaGenerator(_objectMapperScala, debug = true,
+        JsonSchemaConfig.vanillaJsonSchemaDraft4.copy(
+          javaxValidationGroups = Array()
+        ))
+
+      val jsonNode = assertToFromJson(jsonSchemaGenerator_Group, objectUsingGroups)
+      val schema = generateAndValidateSchema(jsonSchemaGenerator_Group, objectUsingGroups.getClass, Some(jsonNode))
+
+      check(schema, "noGroup", included = true)
+      check(schema, "defaultGroup", included = true)
+      check(schema, "group1", included = false)
+      check(schema, "group2", included = false)
+      check(schema, "group12", included = false)
+
+      // Make sure inject on class-level is not included
+      assert(schema.at(s"/injected").isMissingNode)
+    }
+
+    // Default group
+    {
+      val jsonSchemaGenerator_Group = new JsonSchemaGenerator(_objectMapperScala, debug = true,
+        JsonSchemaConfig.vanillaJsonSchemaDraft4.copy(
+          javaxValidationGroups = Array(classOf[Default])
+        ))
+
+      val jsonNode = assertToFromJson(jsonSchemaGenerator_Group, objectUsingGroups)
+      val schema = generateAndValidateSchema(jsonSchemaGenerator_Group, objectUsingGroups.getClass, Some(jsonNode))
+
+      check(schema, "noGroup", included = true)
+      check(schema, "defaultGroup", included = true)
+      check(schema, "group1", included = false)
+      check(schema, "group2", included = false)
+      check(schema, "group12", included = false)
+
+      // Make sure inject on class-level is not included
+      assert(schema.at(s"/injected").isMissingNode)
+    }
+
+    // Group 1
+    {
+      val jsonSchemaGenerator_Group = new JsonSchemaGenerator(_objectMapperScala, debug = true,
+        JsonSchemaConfig.vanillaJsonSchemaDraft4.copy(
+          javaxValidationGroups = Array(classOf[ValidationGroup1])
+        ))
+
+      val jsonNode = assertToFromJson(jsonSchemaGenerator_Group, objectUsingGroups)
+      val schema = generateAndValidateSchema(jsonSchemaGenerator_Group, objectUsingGroups.getClass, Some(jsonNode))
+
+      check(schema, "noGroup", included = false)
+      check(schema, "defaultGroup", included = false)
+      check(schema, "group1", included = true)
+      check(schema, "group2", included = false)
+      check(schema, "group12", included = true)
+
+      // Make sure inject on class-level is not included
+      assert(!schema.at(s"/injected").isMissingNode)
+    }
+
+    // Group 1 and Default-group
+    {
+      val jsonSchemaGenerator_Group = new JsonSchemaGenerator(_objectMapperScala, debug = true,
+        JsonSchemaConfig.vanillaJsonSchemaDraft4.copy(
+          javaxValidationGroups = Array(classOf[ValidationGroup1], classOf[Default])
+        ))
+
+      val jsonNode = assertToFromJson(jsonSchemaGenerator_Group, objectUsingGroups)
+      val schema = generateAndValidateSchema(jsonSchemaGenerator_Group, objectUsingGroups.getClass, Some(jsonNode))
+
+      check(schema, "noGroup", included = true)
+      check(schema, "defaultGroup", included = true)
+      check(schema, "group1", included = true)
+      check(schema, "group2", included = false)
+      check(schema, "group12", included = true)
+
+      // Make sure inject on class-level is not included
+      assert(!schema.at(s"/injected").isMissingNode)
+    }
+
+    // Group 2
+    {
+      val jsonSchemaGenerator_Group = new JsonSchemaGenerator(_objectMapperScala, debug = true,
+        JsonSchemaConfig.vanillaJsonSchemaDraft4.copy(
+          javaxValidationGroups = Array(classOf[ValidationGroup2])
+        ))
+
+      val jsonNode = assertToFromJson(jsonSchemaGenerator_Group, objectUsingGroups)
+      val schema = generateAndValidateSchema(jsonSchemaGenerator_Group, objectUsingGroups.getClass, Some(jsonNode))
+
+      check(schema, "noGroup", included = false)
+      check(schema, "defaultGroup", included = false)
+      check(schema, "group1", included = false)
+      check(schema, "group2", included = true)
+      check(schema, "group12", included = true)
+
+      // Make sure inject on class-level is not included
+      assert(schema.at(s"/injected").isMissingNode)
+    }
+
+    // Group 1 and 2
+    {
+      val jsonSchemaGenerator_Group = new JsonSchemaGenerator(_objectMapperScala, debug = true,
+        JsonSchemaConfig.vanillaJsonSchemaDraft4.copy(
+          javaxValidationGroups = Array(classOf[ValidationGroup1], classOf[ValidationGroup2])
+        ))
+
+      val jsonNode = assertToFromJson(jsonSchemaGenerator_Group, objectUsingGroups)
+      val schema = generateAndValidateSchema(jsonSchemaGenerator_Group, objectUsingGroups.getClass, Some(jsonNode))
+
+      check(schema, "noGroup", included = false)
+      check(schema, "defaultGroup", included = false)
+      check(schema, "group1", included = true)
+      check(schema, "group2", included = true)
+      check(schema, "group12", included = true)
+
+      // Make sure inject on class-level is not included
+      assert(!schema.at(s"/injected").isMissingNode)
+    }
+
+    // Group 3 - not in use
+    {
+      val jsonSchemaGenerator_Group = new JsonSchemaGenerator(_objectMapperScala, debug = true,
+        JsonSchemaConfig.vanillaJsonSchemaDraft4.copy(
+          javaxValidationGroups = Array(classOf[ValidationGroup3_notInUse])
+        ))
+
+      val jsonNode = assertToFromJson(jsonSchemaGenerator_Group, objectUsingGroups)
+      val schema = generateAndValidateSchema(jsonSchemaGenerator_Group, objectUsingGroups.getClass, Some(jsonNode))
+
+      check(schema, "noGroup", included = false)
+      check(schema, "defaultGroup", included = false)
+      check(schema, "group1", included = false)
+      check(schema, "group2", included = false)
+      check(schema, "group12", included = false)
+
+      // Make sure inject on class-level is not included
+      assert(schema.at(s"/injected").isMissingNode)
+    }
+
   }
 
   test("Polymorphism using mixin") {
@@ -1199,6 +1488,7 @@ class JsonSchemaGeneratorTest extends FunSuite with Matchers {
       assert(schema.at("/patternProperties/^s[a-zA-Z0-9]+/type").asText() == "string")
       assert(schema.at("/patternProperties/^i[a-zA-Z0-9]+/type").asText() == "integer")
       assert(schema.at("/properties/sa/type").asText() == "string")
+      assert(schema.at("/properties/injectedInProperties").asText() == "true")
       assert(schema.at("/properties/sa/options/hidden").asText() == "true")
       assert(schema.at("/properties/saMergeFalse/type").asText() == "integer")
       assert(schema.at("/properties/saMergeFalse/default").asText() == "12")
@@ -1211,6 +1501,24 @@ class JsonSchemaGeneratorTest extends FunSuite with Matchers {
       assert(schema.at("/properties/uns2/items/enum/0").asText() == "foo_" + customUserNameLoaderVariable)
       assert(schema.at("/properties/uns2/items/enum/1").asText() == "bar_" + customUserNameLoaderVariable)
     }
+  }
+
+  test("UsingJsonSchemaInjectWithTopLevelMergeFalse") {
+
+    val config = JsonSchemaConfig.vanillaJsonSchemaDraft4
+    val _jsonSchemaGeneratorScala = new JsonSchemaGenerator(_objectMapperScala, debug = true, config)
+    val schema = _jsonSchemaGeneratorScala.generateJsonSchema(classOf[UsingJsonSchemaInjectWithTopLevelMergeFalse])
+
+    val schemaJson = asPrettyJson(schema, _jsonSchemaGeneratorScala.rootObjectMapper)
+    println("--------------------------------------------")
+    println(schemaJson)
+
+    val fasit =
+      """{
+        |  "everything" : "should be replaced"
+        |}""".stripMargin
+
+    assert( schemaJson == fasit )
   }
 
   test("Preventing polymorphism by using classTypeReMapping") {
@@ -1329,6 +1637,62 @@ class JsonSchemaGeneratorTest extends FunSuite with Matchers {
     }
 
   }
+
+  test("Basic json (de)serialization of Kotlin data class") {
+    val a = new KotlinClass("a", 1)
+    val json = _objectMapperKotlin.writeValueAsString(a)
+    val r = _objectMapperKotlin.readValue(json, classOf[KotlinClass])
+    assert( a == r)
+  }
+
+  test("Non-nullable parameter with default value is always required for Kotlin class") {
+
+    val jsonNode = assertToFromJson(jsonSchemaGeneratorKotlin, testData.kotlinWithDefaultValues)
+    val schema = generateAndValidateSchema(jsonSchemaGeneratorKotlin, testData.kotlinWithDefaultValues.getClass, Some(jsonNode))
+
+    println(schema)
+    assert("string" == schema.at("/properties/optional/type").asText())
+    assert("string" == schema.at("/properties/required/type").asText())
+    assert("string" == schema.at("/properties/optionalDefault/type").asText())
+    assert("string" == schema.at("/properties/optionalDefaultNull/type").asText())
+
+    assertPropertyRequired(schema, "optional", required = false)
+    assertPropertyRequired(schema, "required", required = true)
+    assertPropertyRequired(schema, "optionalDefault", required = true)
+    assertPropertyRequired(schema, "optionalDefaultNull", required = false)
+
+  }
+
+  test("JsonSchema DRAFT-06") {
+    val jsg = jsonSchemaGenerator_draft_06
+    val jsonNode = assertToFromJson(jsg, testData.classNotExtendingAnything)
+    val schema = generateAndValidateSchema(jsg, testData.classNotExtendingAnything.getClass, Some(jsonNode),
+      jsonSchemaDraft = JsonSchemaDraft.DRAFT_06
+    )
+
+    // Currently there are no differences in the generated jsonSchema other than the $schema-url
+  }
+
+  test("JsonSchema DRAFT-07") {
+    val jsg = jsonSchemaGenerator_draft_07
+    val jsonNode = assertToFromJson(jsg, testData.classNotExtendingAnything)
+    val schema = generateAndValidateSchema(jsg, testData.classNotExtendingAnything.getClass, Some(jsonNode),
+      jsonSchemaDraft = JsonSchemaDraft.DRAFT_07
+    )
+
+    // Currently there are no differences in the generated jsonSchema other than the $schema-url
+  }
+
+  test("JsonSchema DRAFT-2019-09") {
+    val jsg = jsonSchemaGenerator_draft_2019_09
+    val jsonNode = assertToFromJson(jsg, testData.classNotExtendingAnything)
+    val schema = generateAndValidateSchema(jsg, testData.classNotExtendingAnything.getClass, Some(jsonNode),
+      jsonSchemaDraft = JsonSchemaDraft.DRAFT_2019_09
+    )
+
+    // Currently there are no differences in the generated jsonSchema other than the $schema-url
+  }
+
 }
 
 trait TestData {
@@ -1389,6 +1753,22 @@ trait TestData {
 
   val child41 = new Child41()
   val child42 = new Child42()
+
+  val child51 = {
+    val c = new Child51()
+    c.parentString = "pv"
+    c.child1String = "cs"
+    c.child1String2 = "cs2"
+    c.child1String3 = "cs3"
+    c
+  }
+  val child52 = {
+    val c = new Child52()
+    c.parentString = "pv"
+    c.child2int = 12
+    c
+  }
+
 
   val child2Scala = Child2Scala("pv", 12)
   val child1Scala = Child1Scala("pv", "cs", "cs2", "cs3")
@@ -1465,16 +1845,22 @@ trait TestData {
   val pojoUsingFormat = new PojoUsingFormat("test@example.com", true, OffsetDateTime.now(), OffsetDateTime.now())
   val manyDates = ManyDates(LocalDateTime.now(), OffsetDateTime.now(), LocalDate.now(), org.joda.time.LocalDate.now())
 
+  val defaultAndExamples = DefaultAndExamples("email@example.com", 18, "s", 2, false)
+
   val classUsingValidation = ClassUsingValidation(
     "_stringUsingNotNull", "_stringUsingNotBlank", "_stringUsingNotBlankAndNotNull", "_stringUsingNotEmpty", List("l1", "l2", "l3"), Map("mk1" -> "mv1", "mk2" -> "mv2"),
     "_stringUsingSize", "_stringUsingSizeOnlyMin", "_stringUsingSizeOnlyMax", "_stringUsingPatternA", "_stringUsingPatternList",
-    1, 2, 1.0, 2.0
+    1, 2, 1.0, 2.0, 1.6, 2.0, "mbk@kjetland.com"
+  )
+
+  val classUsingValidationWithGroups = ClassUsingValidationWithGroups(
+    "_noGroup", "_defaultGroup", "_group1", "_group2", "_group12"
   )
 
   val pojoUsingValidation = new PojoUsingValidation(
     "_stringUsingNotNull", "_stringUsingNotBlank", "_stringUsingNotBlankAndNotNull", "_stringUsingNotEmpty", Array("a1", "a2", "a3"), List("l1", "l2", "l3").asJava,
     Map("mk1" -> "mv1", "mk2" -> "mv2").asJava, "_stringUsingSize", "_stringUsingSizeOnlyMin", "_stringUsingSizeOnlyMax", "_stringUsingPatternA",
-    "_stringUsingPatternList", 1, 2, 1.0, 2.0
+    "_stringUsingPatternList", 1, 2, 1.0, 2.0, 1.6, 2.0
   )
 
   val mixinChild1 = {
@@ -1494,5 +1880,7 @@ trait TestData {
   val genericClassVoid = new GenericClassVoid()
 
   val genericMapLike = new GenericMapLike(Collections.singletonMap("foo", "bar"))
+
+  val kotlinWithDefaultValues = new KotlinWithDefaultValues("1", "2", "3", "4")
 
 }
